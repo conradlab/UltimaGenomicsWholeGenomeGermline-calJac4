@@ -3,3 +3,6 @@ version: 1.2
 workflows:
   - subclass: WDL
     primaryDescriptorPath: ./pipelines/broad/dna_seq/germline/single_sample/ugwgs/UltimaGenomicsWholeGenomeGermline.wdl
+    authors:
+       - name: Don Conrad and Broad Institute
+    topic: modified WDLs for Ultima sequence data analysis, adapted for CalJac4 Assembly 	
