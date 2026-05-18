@@ -31,6 +31,7 @@ workflow UltimaGenomicsWholeGenomeGermline {
     Int reads_per_split = 20000000
     String filtering_model_no_gt_name = "rf_model_ignore_gt_incl_hpol_runs"
     Boolean allow_empty_ref_alt = false
+    Boolean run_contamination_check = false
   }
 
   meta {
@@ -49,6 +50,7 @@ workflow UltimaGenomicsWholeGenomeGermline {
     merge_bam_file: "Boolean indicating if by-interval bamout files from HaplotypeCaller should be merged into a single BAM"
     reads_per_split: "Number of reads by which to split the CRAM prior to alignment"
     filtering_model_no_gt_name: "String describing the optional filtering model; default set to rf_model_ignore_gt_incl_hpol_runs"
+    run_contamination_check: "If true, run the contamination estimation workflow. Default false for non-human references without VerifyBamID contamination resource files."
   }
 
   String pipeline_version = "1.0.8"
@@ -67,7 +69,8 @@ workflow UltimaGenomicsWholeGenomeGermline {
       reads_per_split = reads_per_split,
       vcf_post_processing = vcf_post_processing,
       save_bam_file = true,
-      allow_empty_ref_alt = allow_empty_ref_alt
+      allow_empty_ref_alt = allow_empty_ref_alt,
+      run_contamination_check = run_contamination_check
   }
 
   # Break the calling interval_list into sub-intervals
@@ -216,7 +219,7 @@ workflow UltimaGenomicsWholeGenomeGermline {
     File output_cram_index = UltimaGenomicsWholeGenomeCramOnly.output_cram_index
     File output_cram_md5 = UltimaGenomicsWholeGenomeCramOnly.output_cram_md5
 
-    File selfSM = UltimaGenomicsWholeGenomeCramOnly.selfSM
+    File? selfSM = UltimaGenomicsWholeGenomeCramOnly.selfSM
     Float contamination = UltimaGenomicsWholeGenomeCramOnly.contamination
 
     # VCF post-processing

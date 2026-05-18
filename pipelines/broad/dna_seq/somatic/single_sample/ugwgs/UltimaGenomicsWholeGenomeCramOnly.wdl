@@ -27,6 +27,7 @@ workflow UltimaGenomicsWholeGenomeCramOnly {
 
     Boolean save_bam_file = false
     Boolean allow_empty_ref_alt = false
+    Boolean run_contamination_check = false
   }
 
   meta {
@@ -42,6 +43,7 @@ workflow UltimaGenomicsWholeGenomeCramOnly {
     rsq_threshold: "Threshold for a read quality metric that is produced by the sequencing platform"
     reads_per_split: "Number of reads by which to split the CRAM prior to alignment"
     save_bam_file: "If true, then save intermeidate ouputs used by germline pipeline (such as the output BAM) otherwise they won't be kept as outputs."
+    run_contamination_check: "If true, run the contamination estimation workflow. Default false for non-human references without VerifyBamID contamination resource files."
   }
 
   String pipeline_version = "1.0.8"
@@ -117,7 +119,8 @@ workflow UltimaGenomicsWholeGenomeCramOnly {
       wgs_coverage_interval_list            = vcf_post_processing.wgs_coverage_interval_list,
       max_duplication_in_reasonable_sample  = vcf_post_processing.max_duplication_in_reasonable_sample,
       max_chimerism_in_reasonable_sample    = vcf_post_processing.max_chimerism_in_reasonable_sample,
-      flow_order                            = ExtractSampleNameFlowOrder.flow_order
+      flow_order                            = ExtractSampleNameFlowOrder.flow_order,
+      run_contamination_check               = run_contamination_check
   }
 
   # Outputs that will be retained when execution is complete
@@ -126,7 +129,7 @@ workflow UltimaGenomicsWholeGenomeCramOnly {
     File output_cram_index = ConvertToCram.output_cram_index
     File output_cram_md5 = ConvertToCram.output_cram_md5
 
-    File selfSM = CollectStatistics.selfSM
+    File? selfSM = CollectStatistics.selfSM
     Float contamination = CollectStatistics.contamination
 
     # STATISTIC COLLECTION

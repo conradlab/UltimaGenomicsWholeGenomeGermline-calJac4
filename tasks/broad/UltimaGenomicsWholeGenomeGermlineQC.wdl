@@ -17,6 +17,7 @@ workflow UltimaGenomicsWholeGenomeGermlineQC {
     Float max_duplication_in_reasonable_sample
     Float max_chimerism_in_reasonable_sample
     String flow_order
+    Boolean run_contamination_check = false
   }
 
   # Preprocessing step for VerifyBamID, where we realign the reads to the ref and alt haplotypes and extract a bamout.
@@ -30,32 +31,34 @@ workflow UltimaGenomicsWholeGenomeGermlineQC {
   # This vcf contains the SNPs sites with high allele frequency---the same sites as contamination_sites_bed.
   # We need to convert the bed to a vcf because we need alleles, not just the contig and positions, for the genotype-given-allele mode (i.e. --allele argument).
 
-  String hc_contamination_extra_args = "--alleles " + contamination_sites.contamination_sites_vcf
-  call Tasks.HaplotypeCaller as HaplotypeCallerForContamination {
-    input:
-      input_bam_list                = [agg_bam],
-      input_bam_index_list          = [agg_bam_index],
-      interval_list                 = contamination_sites.contamination_sites_vcf,
-      vcf_basename                  = base_file_name,
-      references                    = references,
-      contamination_extra_args      = hc_contamination_extra_args,
-      make_bamout                   = true
-  }
+  if (run_contamination_check) {
+    String hc_contamination_extra_args = "--alleles " + contamination_sites.contamination_sites_vcf
+    call Tasks.HaplotypeCaller as HaplotypeCallerForContamination {
+      input:
+        input_bam_list                = [agg_bam],
+        input_bam_index_list          = [agg_bam_index],
+        interval_list                 = contamination_sites.contamination_sites_vcf,
+        vcf_basename                  = base_file_name,
+        references                    = references,
+        contamination_extra_args      = hc_contamination_extra_args,
+        make_bamout                   = true
+    }
 
-  String contamination_sites_ud   = contamination_sites.contamination_sites_path + flow_order + ".UD"
-  String contamination_sites_bed  = contamination_sites.contamination_sites_path + flow_order + ".bed"
-  String contamination_sites_mu   = contamination_sites.contamination_sites_path + flow_order + ".mu"
+    String contamination_sites_ud   = contamination_sites.contamination_sites_path + flow_order + ".UD"
+    String contamination_sites_bed  = contamination_sites.contamination_sites_path + flow_order + ".bed"
+    String contamination_sites_mu   = contamination_sites.contamination_sites_path + flow_order + ".mu"
 
-  # Estimate level of cross-sample contamination
-  call Tasks.CheckContamination {
-    input:
-      input_bam               = HaplotypeCallerForContamination.bamout,
-      input_bam_index         = HaplotypeCallerForContamination.bamout_index,
-      contamination_sites_ud  = contamination_sites_ud,
-      contamination_sites_bed = contamination_sites_bed,
-      contamination_sites_mu  = contamination_sites_mu,
-      references              = references,
-      output_prefix           = base_file_name
+    # Estimate level of cross-sample contamination
+    call Tasks.CheckContamination {
+      input:
+        input_bam               = HaplotypeCallerForContamination.bamout,
+        input_bam_index         = HaplotypeCallerForContamination.bamout_index,
+        contamination_sites_ud  = contamination_sites_ud,
+        contamination_sites_bed = contamination_sites_bed,
+        contamination_sites_mu  = contamination_sites_mu,
+        references              = references,
+        output_prefix           = base_file_name
+    }
   }
 
   call Tasks.CollectDuplicateMetrics {
@@ -112,8 +115,8 @@ workflow UltimaGenomicsWholeGenomeGermlineQC {
   }
 
   output {
-    File selfSM = CheckContamination.selfSM
-    Float contamination = CheckContamination.contamination
+    File? selfSM = CheckContamination.selfSM
+    Float contamination = select_first([CheckContamination.contamination, 0.0])
     File quality_yield_metrics = CollectQualityYieldMetrics.quality_yield_metrics
     File wgs_metrics = CollectWgsMetrics.metrics
     File raw_wgs_metrics = CollectRawWgsMetrics.metrics
