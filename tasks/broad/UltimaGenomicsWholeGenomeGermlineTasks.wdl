@@ -949,6 +949,7 @@ task AnnotateVCF {
     File reference_dbsnp_index
     String flow_order
     String final_vcf_base_name
+    Boolean run_standard_flow_based_annotation = true
 
     String docker = "us.gcr.io/broad-gatk/gatk:4.3.0.0"
     Int disk_size_gb = ceil(2 * size(input_vcf, "GB") + size(references.ref_fasta, "GB") + size(reference_dbsnp, "GB") + 20)
@@ -958,6 +959,9 @@ task AnnotateVCF {
     Int max_retries = 1
   }
 
+  String used_flow_order = (if flow_order=="" then "TACG" else flow_order)
+  String standard_flow_based_annotation_args = if run_standard_flow_based_annotation then "-G StandardFlowBasedAnnotation --flow-order-for-annotations " + used_flow_order else ""
+
   command <<<
     gatk --java-options "-XX:GCTimeLimit=50 -XX:GCHeapFreeLimit=10 -Xms10000m" \
     VariantAnnotator \
@@ -966,8 +970,7 @@ task AnnotateVCF {
     -O ~{final_vcf_base_name}.annotated.vcf.gz \
     --dbsnp ~{reference_dbsnp} \
     -A StrandOddsRatio \
-    -G StandardFlowBasedAnnotation \
-    --flow-order-for-annotations ~{flow_order}
+    ~{standard_flow_based_annotation_args}
   >>>
 
   runtime {
@@ -1053,6 +1056,10 @@ task AnnotateVCF_AF {
   command <<<
     source ~/.bashrc
     conda activate genomics.py3
+
+    if [ "~{af_only_gnomad_index}" != "~{af_only_gnomad}.tbi" ]; then
+        ln -sf "~{af_only_gnomad_index}" "~{af_only_gnomad}.tbi"
+    fi
 
     echo '[[annotation]]
     file="~{af_only_gnomad}"

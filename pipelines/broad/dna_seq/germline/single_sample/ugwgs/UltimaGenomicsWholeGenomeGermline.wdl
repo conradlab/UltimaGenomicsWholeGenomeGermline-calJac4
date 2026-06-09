@@ -32,6 +32,8 @@ workflow UltimaGenomicsWholeGenomeGermline {
     String filtering_model_no_gt_name = "rf_model_ignore_gt_incl_hpol_runs"
     Boolean allow_empty_ref_alt = false
     Boolean run_contamination_check = false
+    Boolean run_standard_flow_based_annotation = true
+    Boolean run_model_training_and_filtering = true
   }
 
   meta {
@@ -51,6 +53,8 @@ workflow UltimaGenomicsWholeGenomeGermline {
     reads_per_split: "Number of reads by which to split the CRAM prior to alignment"
     filtering_model_no_gt_name: "String describing the optional filtering model; default set to rf_model_ignore_gt_incl_hpol_runs"
     run_contamination_check: "If true, run the contamination estimation workflow. Default false for non-human references without VerifyBamID contamination resource files."
+    run_standard_flow_based_annotation: "If true, add GATK StandardFlowBasedAnnotation in VariantAnnotator. Set false for references where this annotation crashes near contig ends."
+    run_model_training_and_filtering: "If true, train/apply the filtering model, move TREE_SCORE annotations to the GVCF, and reblock the GVCF. Set false to stop after annotated VCF generation."
   }
 
   String pipeline_version = "1.0.8"
@@ -135,7 +139,8 @@ workflow UltimaGenomicsWholeGenomeGermline {
       reference_dbsnp         = vcf_post_processing.ref_dbsnp,
       reference_dbsnp_index   = vcf_post_processing.ref_dbsnp_index,
       flow_order              = UltimaGenomicsWholeGenomeCramOnly.flow_order,
-      final_vcf_base_name     = UltimaGenomicsWholeGenomeCramOnly.output_safe_name
+      final_vcf_base_name     = UltimaGenomicsWholeGenomeCramOnly.output_safe_name,
+      run_standard_flow_based_annotation = run_standard_flow_based_annotation
   }
 
   call Tasks.AddIntervalAnnotationsToVCF {
@@ -146,22 +151,6 @@ workflow UltimaGenomicsWholeGenomeGermline {
       annotation_intervals  = vcf_post_processing.annotation_intervals
   }
 
-  call Tasks.TrainModel {
-    input:
-      input_file                = AddIntervalAnnotationsToVCF.output_vcf,
-      input_file_index          = AddIntervalAnnotationsToVCF.output_vcf_index,
-      input_vcf_name            = UltimaGenomicsWholeGenomeCramOnly.output_safe_name,
-      blocklist_file            = vcf_post_processing.training_blocklist_file,
-      ref_fasta                 = references.ref_fasta,
-      ref_index                 = references.ref_fasta_index,
-      runs_file                 = vcf_post_processing.runs_file,
-      apply_model               = filtering_model_no_gt_name,
-      annotation_intervals      = vcf_post_processing.annotation_intervals,
-      exome_weight              = vcf_post_processing.exome_weight,
-      exome_weight_annotation   = vcf_post_processing.exome_weight_annotation
-  }
-
-
   call Tasks.AnnotateVCF_AF {
     input :
       input_vcf             = AddIntervalAnnotationsToVCF.output_vcf,
@@ -171,43 +160,60 @@ workflow UltimaGenomicsWholeGenomeGermline {
       final_vcf_base_name   = UltimaGenomicsWholeGenomeCramOnly.output_safe_name
   }
 
-  call Tasks.FilterVCF {
-    input:
-      input_vcf               = AnnotateVCF_AF.output_vcf_annotated,
-      input_model             = select_first([vcf_post_processing.filtering_model_no_gt,TrainModel.model_pkl]),
-      runs_file               = vcf_post_processing.runs_file,
-      references              = references,
-      model_name              = filtering_model_no_gt_name,
-      filter_cg_insertions    = vcf_post_processing.filter_cg_insertions,
-      final_vcf_base_name     = UltimaGenomicsWholeGenomeCramOnly.output_safe_name,
-      flow_order              = UltimaGenomicsWholeGenomeCramOnly.flow_order,
-      annotation_intervals    = vcf_post_processing.annotation_intervals
-  }
+  if (run_model_training_and_filtering) {
+    call Tasks.TrainModel {
+      input:
+        input_file                = AddIntervalAnnotationsToVCF.output_vcf,
+        input_file_index          = AddIntervalAnnotationsToVCF.output_vcf_index,
+        input_vcf_name            = UltimaGenomicsWholeGenomeCramOnly.output_safe_name,
+        blocklist_file            = vcf_post_processing.training_blocklist_file,
+        ref_fasta                 = references.ref_fasta,
+        ref_index                 = references.ref_fasta_index,
+        runs_file                 = vcf_post_processing.runs_file,
+        apply_model               = filtering_model_no_gt_name,
+        annotation_intervals      = vcf_post_processing.annotation_intervals,
+        exome_weight              = vcf_post_processing.exome_weight,
+        exome_weight_annotation   = vcf_post_processing.exome_weight_annotation
+    }
 
-  call Tasks.MoveAnnotationsToGvcf {
-    input:
-      filtered_vcf        = FilterVCF.output_vcf_filtered,
-      filtered_vcf_index  = FilterVCF.output_vcf_filtered_index,
-      gvcf                = MergeVCFs.output_vcf,
-      gvcf_index          = MergeVCFs.output_vcf_index
-  }
+    call Tasks.FilterVCF {
+      input:
+        input_vcf               = AnnotateVCF_AF.output_vcf_annotated,
+        input_model             = select_first([vcf_post_processing.filtering_model_no_gt, TrainModel.model_pkl]),
+        runs_file               = vcf_post_processing.runs_file,
+        references              = references,
+        model_name              = filtering_model_no_gt_name,
+        filter_cg_insertions    = vcf_post_processing.filter_cg_insertions,
+        final_vcf_base_name     = UltimaGenomicsWholeGenomeCramOnly.output_safe_name,
+        flow_order              = UltimaGenomicsWholeGenomeCramOnly.flow_order,
+        annotation_intervals    = vcf_post_processing.annotation_intervals
+    }
 
-  call ReblockGVCF.ReblockGVCF {
-    input:
-      gvcf = MoveAnnotationsToGvcf.output_gvcf,
-      gvcf_index = MoveAnnotationsToGvcf.output_gvcf_index,
-      calling_interval_list = variant_calling_settings.wgs_calling_interval_list,
-      ref_dict = alignment_references.references.ref_dict,
-      ref_fasta = alignment_references.references.ref_fasta,
-      ref_fasta_index = alignment_references.references.ref_fasta_index,
-      tree_score_cutoff = vcf_post_processing.remove_low_tree_score_sites_cutoff,
-      annotations_to_keep_command = vcf_post_processing.annotations_to_keep_command_for_reblocking
+    call Tasks.MoveAnnotationsToGvcf {
+      input:
+        filtered_vcf        = FilterVCF.output_vcf_filtered,
+        filtered_vcf_index  = FilterVCF.output_vcf_filtered_index,
+        gvcf                = MergeVCFs.output_vcf,
+        gvcf_index          = MergeVCFs.output_vcf_index
+    }
+
+    call ReblockGVCF.ReblockGVCF {
+      input:
+        gvcf = MoveAnnotationsToGvcf.output_gvcf,
+        gvcf_index = MoveAnnotationsToGvcf.output_gvcf_index,
+        calling_interval_list = variant_calling_settings.wgs_calling_interval_list,
+        ref_dict = alignment_references.references.ref_dict,
+        ref_fasta = alignment_references.references.ref_fasta,
+        ref_fasta_index = alignment_references.references.ref_fasta_index,
+        tree_score_cutoff = vcf_post_processing.remove_low_tree_score_sites_cutoff,
+        annotations_to_keep_command = vcf_post_processing.annotations_to_keep_command_for_reblocking
+    }
   }
 
   # Outputs that will be retained when execution is complete
   output {
-    File output_gvcf = ReblockGVCF.output_vcf
-    File output_gvcf_index = ReblockGVCF.output_vcf_index
+    File output_gvcf = select_first([ReblockGVCF.output_vcf, MergeVCFs.output_vcf])
+    File output_gvcf_index = select_first([ReblockGVCF.output_vcf_index, MergeVCFs.output_vcf_index])
     File output_vcf = ConvertGVCFtoVCF.output_vcf
     File output_vcf_index = ConvertGVCFtoVCF.output_vcf_index
 
@@ -223,8 +229,12 @@ workflow UltimaGenomicsWholeGenomeGermline {
     Float contamination = UltimaGenomicsWholeGenomeCramOnly.contamination
 
     # VCF post-processing
-    File filtered_vcf = FilterVCF.output_vcf_filtered
-    File filtered_vcf_index = FilterVCF.output_vcf_filtered_index
+    File annotated_vcf = AnnotateVCF_AF.output_vcf_annotated
+    File annotated_vcf_index = AnnotateVCF_AF.output_vcf_annotated_index
+    File final_vcf = select_first([FilterVCF.output_vcf_filtered, AnnotateVCF_AF.output_vcf_annotated])
+    File final_vcf_index = select_first([FilterVCF.output_vcf_filtered_index, AnnotateVCF_AF.output_vcf_annotated_index])
+    File? filtered_vcf = FilterVCF.output_vcf_filtered
+    File? filtered_vcf_index = FilterVCF.output_vcf_filtered_index
 
     # STATISTIC COLLECTION
     File quality_yield_metrics = UltimaGenomicsWholeGenomeCramOnly.quality_yield_metrics
