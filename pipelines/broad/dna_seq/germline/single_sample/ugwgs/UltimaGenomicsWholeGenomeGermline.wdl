@@ -229,6 +229,18 @@ workflow UltimaGenomicsWholeGenomeGermline {
     Float contamination = UltimaGenomicsWholeGenomeCramOnly.contamination
 
     # VCF post-processing
+    File output_dbsnp_annotated_vcf = AnnotateVCF.output_vcf_annotated
+    File output_dbsnp_annotated_vcf_index = AnnotateVCF.output_vcf_annotated_index
+    File output_interval_annotated_vcf = AddIntervalAnnotationsToVCF.output_vcf
+    File output_interval_annotated_vcf_index = AddIntervalAnnotationsToVCF.output_vcf_index
+    File output_annotated_vcf = AnnotateVCF_AF.output_vcf_annotated
+    File output_annotated_vcf_index = AnnotateVCF_AF.output_vcf_annotated_index
+    File output_final_vcf = select_first([FilterVCF.output_vcf_filtered, AnnotateVCF_AF.output_vcf_annotated])
+    File output_final_vcf_index = select_first([FilterVCF.output_vcf_filtered_index, AnnotateVCF_AF.output_vcf_annotated_index])
+    File dbsnp_annotated_vcf = AnnotateVCF.output_vcf_annotated
+    File dbsnp_annotated_vcf_index = AnnotateVCF.output_vcf_annotated_index
+    File interval_annotated_vcf = AddIntervalAnnotationsToVCF.output_vcf
+    File interval_annotated_vcf_index = AddIntervalAnnotationsToVCF.output_vcf_index
     File annotated_vcf = AnnotateVCF_AF.output_vcf_annotated
     File annotated_vcf_index = AnnotateVCF_AF.output_vcf_annotated_index
     File final_vcf = select_first([FilterVCF.output_vcf_filtered, AnnotateVCF_AF.output_vcf_annotated])
