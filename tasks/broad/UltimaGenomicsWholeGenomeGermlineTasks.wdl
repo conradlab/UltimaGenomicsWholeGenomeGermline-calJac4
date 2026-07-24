@@ -996,31 +996,54 @@ task AddIntervalAnnotationsToVCF {
     Array[File] annotation_intervals
 
     String docker = "us.gcr.io/broad-dsde-methods/broad-gatk-snapshots:UG_vc_cfa2f0"
-    Int disk_size_gb = ceil(2 * size(input_vcf, "GB") + 1)
+    Int disk_size_gb = ceil(3 * size(input_vcf, "GB") + size(annotation_intervals, "GB") + 20)
     Int cpu = 1
     Int memory_mb = 15000
     Int preemptible = 3
   }
 
   command <<<
+    set -euo pipefail
+
     source ~/.bashrc
     conda activate genomics.py3
 
     export header_file=header.hdr
-    export id_file=header.ID
+    ln -sf "~{input_vcf}" working.0.vcf.gz
+    ln -sf "~{input_vcf_index}" working.0.vcf.gz.tbi
+
+    current_vcf=working.0.vcf.gz
+    annotation_count=0
+
     for f in ~{sep=" " annotation_intervals}
     do
-        echo Annotating ~{input_vcf} with $(basename $f)
-        head -1 $f > $header_file
-        cat $header_file | sed 's/[<>]/ /' | sed 's/[=]/ /' | sed 's/[=]/ /' | sed 's/[,]/ /' | awk '{print $3}' > $id_file
-        mv ~{input_vcf} ~{input_vcf}.tmp
-        bcftools annotate -a $f \
-            -c CHROM,FROM,TO,"$(<$id_file)" \
-            -h $header_file ~{input_vcf}.tmp \
-            | bcftools view - -Oz -o ~{input_vcf}
+        annotation_count=$((annotation_count + 1))
+        previous_vcf="$current_vcf"
+        next_vcf=working.${annotation_count}.vcf.gz
+
+        echo Annotating $current_vcf with $(basename "$f")
+        head -1 "$f" > $header_file
+        annotation_id=$(sed -n 's/^##INFO=<ID=\([^,>]*\).*/\1/p' $header_file | head -1)
+        if [ -z "$annotation_id" ]; then
+            echo "Could not parse INFO ID from annotation interval header in $f" >&2
+            cat $header_file >&2
+            exit 1
+        fi
+
+        bcftools annotate -a "$f" \
+            -c CHROM,FROM,TO,"$annotation_id" \
+            -h $header_file \
+            -Oz -o "$next_vcf" \
+            "$current_vcf"
+        bcftools index -f -t "$next_vcf"
+        if [ "$previous_vcf" != "working.0.vcf.gz" ]; then
+            rm -f "$previous_vcf" "$previous_vcf.tbi"
+        fi
+        current_vcf="$next_vcf"
     done
-    mv ~{input_vcf} ~{final_vcf_base_name}.intervals_annotated.vcf.gz
-    bcftools index -f -t ~{final_vcf_base_name}.intervals_annotated.vcf.gz
+
+    mv "$current_vcf" ~{final_vcf_base_name}.intervals_annotated.vcf.gz
+    mv "$current_vcf.tbi" ~{final_vcf_base_name}.intervals_annotated.vcf.gz.tbi
     >>>
 
   runtime {
